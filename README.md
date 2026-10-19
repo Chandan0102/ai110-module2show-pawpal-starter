@@ -81,7 +81,7 @@ Total: 80 min, 1 skipped
 
 ```bash
 # Run the full test suite:
-pytest
+python -m pytest
 
 # Run with coverage:
 pytest --cov
@@ -91,6 +91,19 @@ Sample test output:
 
 ```
 # Paste your pytest output here
+(.venv) PS C:\Users\sinha\Desktop\AI110\ai110-module2show-pawpal-starter> python -m pytest
+======================================================== test session starts =========================================================
+platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
+rootdir: C:\Users\sinha\Desktop\AI110\ai110-module2show-pawpal-starter
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.15.1
+collected 34 items                                                                                                                    
+
+tests\test_pawpal.py ..................................                                                                         [100%]
+
+========================================================= 34 passed in 0.20s =========================================================
+
 ```
 
 ## 📐 Smarter Scheduling

@@ -98,19 +98,23 @@ class Pet:
         """Update fields of the task with the given id."""
         task = self._find_task(task_id)
         valid = {f.name for f in fields(Task)} - {"task_id"}
-        for name, value in changes.items():
+        for name in changes:
             if name not in valid:
                 raise AttributeError(f"Task has no editable field {name!r}")
-            setattr(task, name, value)
-        task.__post_init__()  # re-validate
+        # Build a validated copy first so a bad value leaves the task untouched.
+        candidate = replace(task, **changes)
+        for f in fields(Task):
+            setattr(task, f.name, getattr(candidate, f.name))
 
     def remove_task(self, task_id: str) -> None:
         """Remove the task with the given id."""
         self.tasks.remove(self._find_task(task_id))
 
     def complete_task(self, task_id: str) -> Optional[Task]:
-        """Mark a task done; if it recurs, add and return its next occurrence."""
+        """Mark a task done; if it recurs, add and return its next occurrence (None if already done)."""
         task = self._find_task(task_id)
+        if task.completed:
+            return None  # already done: don't spawn a duplicate occurrence
         task.mark_complete()
         next_task = task.next_occurrence()
         if next_task is not None:
