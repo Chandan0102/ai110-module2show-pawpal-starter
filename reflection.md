@@ -18,7 +18,18 @@ The main relationships are: an Owner has many Pets, a Pet has many Tasks, the Sc
 
 **b. Design changes**
 
-*To be completed after implementation.* No backend code exists yet, so the design has not changed. After building the classes, I will reveiw this agian.
+After drafting the class skeleton in `pawpal_system.py`, I asked an AI assistant to review it for missing relationships and logic bottlenecks. I made three changes based on that feedback:
+
+- **Tasks are identified by `task_id`, not title.** `edit_task` and `remove_task` originally looked tasks up by title, which breaks as soon as a pet has two tasks with the same name (for example two "Feeding" entries). Each Task now gets a unique id, and those methods take it.
+- **`total_minutes` is computed, not stored.** On `DailyPlan` it was a separate field that could drift out of sync with `entries`. It is now a property derived from the entries.
+- **Added `Priority.from_str`.** The Streamlit UI sends priority as a string ("low", "medium", "high"), but the model uses an enum, so I added a conversion at that boundary.
+
+The review also raised points I chose not to act on yet, and will revisit during implementation:
+
+- Recurring tasks: I added a `frequency` field, but nothing uses it yet, so a completed task can't reset for the next day.
+- `preferred_time` is a free-form string, which will be hard for the scheduler to use.
+- The greedy "fit to time" step can skip a long high-priority task and then fill the day with short low-priority ones. I will treat this as a deliberate tradeoff and describe it in section 2.
+- `start_time` as a plain `time` can't represent a plan that runs past midnight.
 
 ---
 
@@ -40,13 +51,25 @@ The main relationships are: an Owner has many Pets, a Pet has many Tasks, the Sc
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used an AI assistant at every stage, not only for writing code:
+
+- **Design brainstorming:** I asked it to list the building blocks of the system with their attributes and methods, then turned that into a Mermaid class diagram.
+- **Scaffolding:** I had it generate the class skeleton in `pawpal_system.py` from the UML, using dataclasses for Task, Pet and Owner.
+- **Design review:** I asked it to review the skeleton for missing relationships and logic bottlenecks.
+- **Implementation and tests:** It filled in the class logic, wrote a `main.py` terminal demo, drafted the first two pytest tests, and added docstrings.
+
+The most helpful prompts were specific and tied to the code that already existed, such as "review my skeleton for missing relationships and bottlenecks" and "make the Scheduler read from an Owner method rather than a single pet". Broad prompts gave generic answers. Prompts that named a concrete constraint gave answers I could act on.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+I did not accept the AI's design review wholesale. It raised seven points: identifying tasks by id, a derived `total_minutes`, a priority string-to-enum conversion, recurring tasks, a free-form `preferred_time`, the greedy fit-to-time behavior, and the midnight limitation of `start_time`. I accepted the first three because each fixed a concrete problem: duplicate titles breaking edit and remove, a stored total that could drift from the entries, and the UI sending strings where the model uses an enum. I rejected the rest for now. They would have made the first version much bigger, and the greedy behavior is a tradeoff I want to describe myself in section 2. I recorded them in section 1b so they are not lost.
+
+I verified the result instead of trusting it:
+
+- I ran `main.py` with two pets and six tasks and read the schedule and the reasons. This showed the multi-pet logic works, and it also exposed a weakness: a high-priority evening medication was scheduled at 08:40, because `preferred_time` only affects ordering and does not pin a time slot.
+- I wrote pytest tests for task completion and for adding a task to a pet, and ran them in the project's virtual environment. Both pass.
+
+These checks cover only the basics. I have not yet tested the Scheduler's edge cases, such as an empty plan or a task longer than the whole time budget.
 
 ---
 

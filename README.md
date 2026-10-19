@@ -22,6 +22,20 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
+## Implementation summary
+
+The backend lives in `pawpal_system.py` and is built from a few small classes:
+
+- **Task** (dataclass): one care activity with a title, duration, priority, category, preferred time of day, frequency and completion status. Each task has a unique `task_id`.
+- **Pet** (dataclass): pet details plus its own list of tasks, with methods to add, edit, remove and list them.
+- **Owner** (dataclass): the owner's name and daily time budget, plus a list of pets. `get_all_tasks()` returns every pet's tasks together as `(pet, task)` pairs.
+- **Scheduler**: the "brain". It reads tasks through `Owner.get_all_tasks()` (so every pet is covered), skips completed tasks, sorts by priority, time of day and duration, keeps adding tasks until the owner's time budget runs out, and lays them out back to back from the start time.
+- **DailyPlan**, **ScheduledItem** and **SkippedTask**: the result. A plan holds the scheduled items (task, pet, start, end, reason) and the skipped tasks with the reason each did not fit. `summary()` and `explain()` turn it into readable text.
+
+How they fit together: `Owner` → `Pet` → `Task` hold the data, `Scheduler` reads from the `Owner` and produces a `DailyPlan`, and the UI only has to display that plan.
+
+Try it in the terminal with `python main.py`, and run the tests with `pytest`. The Streamlit UI in `app.py` is not connected to this logic yet.
+
 ## Getting started
 
 ### Setup
@@ -53,6 +67,15 @@ Paste a sample of your app's CLI or Streamlit output here so a reader can see wh
 #   09:00 — Feeding (10 min) [priority: high]
 #   ...
 ```
+(.venv) PS C:\Users\sinha\Desktop\AI110\ai110-module2show-pawpal-starter> python main.py
+=== Today's Schedule for Jordan (90 min available) ===
+Plan for 2026-10-18
+  08:00-08:10  Luna: Breakfast (10 min) [high]
+  08:10-08:40  Mochi: Morning walk (30 min) [high]
+  08:40-08:45  Luna: Evening medication (5 min) [high]
+  08:45-09:00  Luna: Laser play (15 min) [medium]
+  09:00-09:20  Mochi: Training session (20 min) [medium]
+Total: 80 min, 1 skipped
 
 ## 🧪 Testing PawPal+
 
