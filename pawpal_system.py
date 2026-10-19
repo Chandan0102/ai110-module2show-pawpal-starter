@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime, time, timedelta
 from enum import Enum
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 from uuid import uuid4
 
 TIME_OF_DAY_ORDER = {"morning": 0, "afternoon": 1, "evening": 2}
@@ -69,6 +72,37 @@ class Task:
             task_id=uuid4().hex,
         )
 
+    def to_dict(self) -> dict:
+        """Return a JSON-friendly dict (enum by name, date as ISO string)."""
+        return {
+            "title": self.title,
+            "duration_minutes": self.duration_minutes,
+            "priority": self.priority.name,
+            "category": self.category,
+            "preferred_time": self.preferred_time,
+            "frequency": self.frequency,
+            "start_time": self.start_time,
+            "due_date": self.due_date.isoformat(),
+            "completed": self.completed,
+            "task_id": self.task_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Task:
+        """Rebuild a Task from to_dict() output, re-running validation."""
+        return cls(
+            title=data["title"],
+            duration_minutes=data["duration_minutes"],
+            priority=Priority[data["priority"]],
+            category=data.get("category", "general"),
+            preferred_time=data.get("preferred_time"),
+            frequency=data.get("frequency", "daily"),
+            start_time=data.get("start_time"),
+            due_date=date.fromisoformat(data["due_date"]),
+            completed=data.get("completed", False),
+            task_id=data["task_id"],
+        )
+
     def priority_value(self) -> int:
         """Return a numeric priority (1-3) for sorting."""
         return self.priority.value
@@ -125,6 +159,27 @@ class Pet:
         """Return a copy of this pet's tasks."""
         return list(self.tasks)
 
+    def to_dict(self) -> dict:
+        """Return a JSON-friendly dict including this pet's tasks."""
+        return {
+            "name": self.name,
+            "species": self.species,
+            "age": self.age,
+            "special_needs": self.special_needs,
+            "tasks": [task.to_dict() for task in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Pet:
+        """Rebuild a Pet (and its tasks) from to_dict() output."""
+        return cls(
+            name=data["name"],
+            species=data["species"],
+            age=data.get("age"),
+            special_needs=data.get("special_needs"),
+            tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
+        )
+
     def _find_task(self, task_id: str) -> Task:
         """Return the task with the given id or raise KeyError."""
         for task in self.tasks:
@@ -155,6 +210,43 @@ class Owner:
     def get_all_tasks(self) -> list[tuple[Pet, Task]]:
         """Return every task across all pets, paired with its pet."""
         return [(pet, task) for pet in self.pets for task in pet.get_tasks()]
+
+    def to_dict(self) -> dict:
+        """Return a JSON-friendly dict of the whole owner, pets and tasks."""
+        return {
+            "name": self.name,
+            "available_minutes": self.available_minutes,
+            "preferences": self.preferences,
+            "pets": [pet.to_dict() for pet in self.pets],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Owner:
+        """Rebuild an Owner (with pets and tasks) from to_dict() output."""
+        return cls(
+            name=data["name"],
+            available_minutes=data["available_minutes"],
+            preferences=data.get("preferences", {}),
+            pets=[Pet.from_dict(p) for p in data.get("pets", [])],
+        )
+
+    def save_to_json(self, path: Union[str, Path] = "data.json") -> None:
+        """Write this owner, their pets and tasks to a JSON file (atomic replace)."""
+        path = Path(path)
+        tmp = path.with_name(path.name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        os.replace(tmp, path)  # never leaves a half-written data file behind
+
+    @classmethod
+    def load_from_json(cls, path: Union[str, Path] = "data.json") -> Owner:
+        """Load an Owner from a JSON file; raises FileNotFoundError or ValueError."""
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)  # invalid JSON raises JSONDecodeError (a ValueError)
+        try:
+            return cls.from_dict(data)
+        except (KeyError, TypeError, AttributeError) as err:
+            raise ValueError(f"Malformed data file {str(path)!r}: {err!r}") from err
 
 
 @dataclass
@@ -233,7 +325,7 @@ class Scheduler:
             for p, t in self.owner.get_all_tasks()
             if not t.completed and t.due_date <= today
         ]
-        ordered = self._sort_tasks(pending)
+        ordered = self.sort_by_priority(pending)
         fitted, skipped = self._fit_to_time(ordered)
 
         plan = DailyPlan()
@@ -280,16 +372,19 @@ class Scheduler:
                 warnings.append(f"Conflict on {day:%Y-%m-%d} at {at} ({scope}): {names}")
         return warnings
 
-    def _sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
-        """Order by priority (high first), then time of day, then shorter first."""
+    def sort_by_priority(
+        self, tasks: Optional[list[tuple[Pet, Task]]] = None
+    ) -> list[tuple[Pet, Task]]:
+        """Order by priority (high first), then fixed time, time of day, shorter first."""
+        pairs = self.owner.get_all_tasks() if tasks is None else tasks
 
         def key(pair: tuple[Pet, Task]):
-            """Sort key: priority desc, time of day, duration asc."""
+            """Sort key: priority desc, "HH:MM" time, time of day, duration asc."""
             _, task = pair
             tod = TIME_OF_DAY_ORDER.get(task.preferred_time or "", len(TIME_OF_DAY_ORDER))
-            return (-task.priority_value(), tod, task.duration_minutes)
+            return (-task.priority_value(), task.start_time or "99:99", tod, task.duration_minutes)
 
-        return sorted(tasks, key=key)
+        return sorted(pairs, key=key)
 
     def _fit_to_time(
         self, tasks: list[tuple[Pet, Task]]

@@ -1,0 +1,112 @@
+classDiagram
+    %% Final design: matches pawpal_system.py.
+    %% Owner -> Pet -> Task hold the data; Scheduler reads from Owner and builds a DailyPlan.
+
+    class Priority {
+        <<enumeration>>
+        LOW = 1
+        MEDIUM = 2
+        HIGH = 3
+        from_str(value) Priority$
+    }
+
+    class Task {
+        <<dataclass>>
+        +str title
+        +int duration_minutes
+        +Priority priority
+        +str category
+        +str preferred_time
+        +str frequency
+        +str start_time
+        +date due_date
+        +bool completed
+        +str task_id
+        +mark_complete() None
+        +next_occurrence() Task
+        +priority_value() int
+        +__str__() str
+    }
+
+    class Pet {
+        <<dataclass>>
+        +str name
+        +str species
+        +int age
+        +str special_needs
+        +list~Task~ tasks
+        +add_task(task) None
+        +edit_task(task_id, changes) None
+        +remove_task(task_id) None
+        +complete_task(task_id) Task
+        +get_tasks() list~Task~
+        -_find_task(task_id) Task
+    }
+
+    class Owner {
+        <<dataclass>>
+        +str name
+        +int available_minutes
+        +dict preferences
+        +list~Pet~ pets
+        +add_pet(pet) None
+        +remove_pet(name) None
+        +get_all_tasks() list~tuple~
+    }
+
+    class ScheduledItem {
+        <<dataclass>>
+        +Task task
+        +Pet pet
+        +time start
+        +time end
+        +str reason
+    }
+
+    class SkippedTask {
+        <<dataclass>>
+        +Task task
+        +Pet pet
+        +str reason
+    }
+
+    class DailyPlan {
+        <<dataclass>>
+        +date plan_date
+        +list~ScheduledItem~ entries
+        +list~SkippedTask~ skipped
+        +total_minutes int
+        +add_entry(item) None
+        +add_skipped(task, pet, reason) None
+        +summary() str
+        +explain() str
+    }
+
+    class Scheduler {
+        +Owner owner
+        +time start_time
+        +generate_plan() DailyPlan
+        +sort_by_time(tasks) list~tuple~
+        +filter_tasks(pet_name, completed, tasks) list~tuple~
+        +detect_conflicts() list~str~
+        -_sort_tasks(tasks) list~tuple~
+        -_fit_to_time(tasks) tuple
+        -_assign_times(tasks) list~ScheduledItem~
+        -_explain(task, reason) str
+    }
+
+    %% Data ownership
+    Owner "1" *-- "0..*" Pet : has
+    Pet "1" *-- "0..*" Task : has
+    Task --> Priority : uses
+    Task ..> Task : next_occurrence() copies
+
+    %% Scheduling
+    Scheduler --> Owner : reads via get_all_tasks()
+    Scheduler ..> DailyPlan : creates
+    DailyPlan "1" *-- "0..*" ScheduledItem : entries
+    DailyPlan "1" *-- "0..*" SkippedTask : skipped
+    ScheduledItem --> Task : schedules
+    ScheduledItem --> Pet : for
+    SkippedTask --> Task : skipped
+    SkippedTask --> Pet : for

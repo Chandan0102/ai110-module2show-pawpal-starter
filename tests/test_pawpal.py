@@ -343,3 +343,136 @@ def test_remove_task_and_remove_pet():
     assert [p.name for p in owner.pets] == ["Mochi"]
     with pytest.raises(KeyError):
         owner.remove_pet("Ghost")
+
+
+# --- Persistence ------------------------------------------------------------------
+
+
+def _populated_owner():
+    owner, mochi, luna = _owner_with_two_pets()
+    owner.preferences = {"walk_time": "morning"}
+    mochi.age, mochi.special_needs = 4, "joint care"
+    mochi.add_task(Task("Walk", 30, Priority.HIGH, category="walk", preferred_time="morning",
+                        start_time="07:30"))
+    done = Task("Feed", 10, frequency="once", due_date=date.today() - timedelta(days=1))
+    done.mark_complete()
+    luna.add_task(done)
+    return owner
+
+
+def test_save_and_load_round_trip_preserves_everything(tmp_path):
+    owner = _populated_owner()
+    path = tmp_path / "data.json"
+
+    owner.save_to_json(path)
+    loaded = Owner.load_from_json(path)
+
+    assert loaded == owner  # dataclass equality compares every nested field
+    assert loaded.pets[0].tasks[0].priority is Priority.HIGH
+    assert loaded.pets[1].tasks[0].completed is True
+
+
+def test_saved_file_is_plain_json_with_readable_values(tmp_path):
+    import json
+
+    path = tmp_path / "data.json"
+    _populated_owner().save_to_json(path)
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    task = data["pets"][0]["tasks"][0]
+    assert task["priority"] == "HIGH" and task["start_time"] == "07:30"
+    assert task["due_date"] == date.today().isoformat()
+    assert not (tmp_path / "data.json.tmp").exists()
+
+
+def test_loaded_data_keeps_working(tmp_path):
+    owner, mochi, _ = _owner_with_two_pets()
+    walk = Task("Walk", 30)
+    mochi.add_task(walk)
+    path = tmp_path / "data.json"
+    owner.save_to_json(path)
+
+    loaded = Owner.load_from_json(path)
+    nxt = loaded.pets[0].complete_task(walk.task_id)  # ids survive the round trip
+
+    assert nxt is not None and len(loaded.pets[0].tasks) == 2
+    assert Scheduler(loaded).generate_plan().entries == []  # copy is due tomorrow
+
+
+def test_save_overwrites_previous_file(tmp_path):
+    path = tmp_path / "data.json"
+    owner = _populated_owner()
+    owner.save_to_json(path)
+    owner.pets.clear()
+
+    owner.save_to_json(path)
+
+    assert Owner.load_from_json(path).pets == []
+
+
+def test_load_missing_file_raises_file_not_found(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        Owner.load_from_json(tmp_path / "nope.json")
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["{not json", "[]", '{"name": "J"}', '{"name": "J", "available_minutes": 5, '
+     '"pets": [{"name": "M", "species": "dog", "tasks": [{"title": "x"}]}]}'],
+)
+def test_load_corrupt_or_malformed_file_raises_value_error(tmp_path, content):
+    path = tmp_path / "data.json"
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        Owner.load_from_json(path)
+
+
+def test_load_rejects_invalid_task_values(tmp_path):
+    bad = _populated_owner()
+    bad.pets[0].tasks[0].duration_minutes = 0  # bypasses validation on purpose
+    path = tmp_path / "data.json"
+    bad.save_to_json(path)
+
+    with pytest.raises(ValueError):
+        Owner.load_from_json(path)
+
+
+# --- Priority-first scheduling ----------------------------------------------------
+
+
+def test_sort_by_priority_puts_high_before_medium_before_low_regardless_of_time():
+    owner, mochi, luna = _owner_with_two_pets()
+    mochi.add_task(Task("Low early", 10, Priority.LOW, start_time="06:00"))
+    mochi.add_task(Task("High late", 10, Priority.HIGH, start_time="20:00"))
+    luna.add_task(Task("Medium", 10, Priority.MEDIUM, start_time="07:00"))
+
+    ordered = [t.title for _, t in Scheduler(owner).sort_by_priority()]
+
+    assert ordered == ["High late", "Medium", "Low early"]
+
+
+def test_sort_by_priority_breaks_ties_by_fixed_time_then_time_of_day_then_duration():
+    owner, mochi, _ = _owner_with_two_pets()
+    mochi.add_task(Task("Late", 10, Priority.HIGH, start_time="18:00"))
+    mochi.add_task(Task("Early", 10, Priority.HIGH, start_time="07:30"))
+    mochi.add_task(Task("Evening", 10, Priority.MEDIUM, preferred_time="evening"))
+    mochi.add_task(Task("Morning long", 30, Priority.MEDIUM, preferred_time="morning"))
+    mochi.add_task(Task("Morning short", 5, Priority.MEDIUM, preferred_time="morning"))
+
+    ordered = [t.title for _, t in Scheduler(owner).sort_by_priority()]
+
+    assert ordered == ["Early", "Late", "Morning short", "Morning long", "Evening"]
+
+
+def test_tight_budget_keeps_high_priority_and_drops_low_even_if_low_is_earlier():
+    owner, mochi, _ = _owner_with_two_pets()
+    owner.available_minutes = 30
+    mochi.add_task(Task("Grooming", 30, Priority.LOW, start_time="06:00"))
+    mochi.add_task(Task("Meds", 30, Priority.HIGH, start_time="21:00"))
+
+    plan = Scheduler(owner).generate_plan()
+
+    assert [i.task.title for i in plan.entries] == ["Meds"]
+    assert [s.task.title for s in plan.skipped] == ["Grooming"]
