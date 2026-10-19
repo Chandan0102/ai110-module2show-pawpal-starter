@@ -15,6 +15,11 @@ TIME_OF_DAY_ORDER = {"morning": 0, "afternoon": 1, "evening": 2}
 FREQUENCIES = ("once", "daily", "weekly")
 
 
+def _minutes(t: time) -> int:
+    """Return minutes since midnight for a time of day."""
+    return t.hour * 60 + t.minute
+
+
 class Priority(Enum):
     LOW = 1
     MEDIUM = 2
@@ -371,6 +376,41 @@ class Scheduler:
                 names = ", ".join(f"{p.name}: {t.title}" for p, t in group)
                 warnings.append(f"Conflict on {day:%Y-%m-%d} at {at} ({scope}): {names}")
         return warnings
+
+    def find_next_slot(
+        self,
+        duration_minutes: int,
+        day_start: time = time(8, 0),
+        day_end: time = time(22, 0),
+        on: Optional[date] = None,
+    ) -> Optional[time]:
+        """Return the earliest start time with a free gap of duration_minutes, or None.
+
+        Pending tasks with a fixed start_time on that date block their time range
+        (start to start + duration); tasks without a fixed time are flexible and
+        do not block anything. Works in whole minutes, so nothing wraps past midnight.
+        """
+        if duration_minutes <= 0:
+            raise ValueError("duration_minutes must be positive")
+        if day_end <= day_start:
+            raise ValueError("day_end must be after day_start")
+
+        day = on or date.today()
+        intervals = []  # (start, end) minutes since midnight of each blocking task
+        for _, task in self.owner.get_all_tasks():
+            if task.start_time and not task.completed and task.due_date == day:
+                start = _minutes(datetime.strptime(task.start_time, "%H:%M").time())
+                intervals.append((start, start + task.duration_minutes))
+        intervals.sort()
+
+        cursor, limit = _minutes(day_start), _minutes(day_end)
+        for start, end in intervals:
+            if start - cursor >= duration_minutes:
+                break  # the gap before this task is big enough
+            cursor = max(cursor, end)
+        if cursor + duration_minutes > limit:
+            return None
+        return time(cursor // 60, cursor % 60)
 
     def sort_by_priority(
         self, tasks: Optional[list[tuple[Pet, Task]]] = None

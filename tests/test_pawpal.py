@@ -476,3 +476,87 @@ def test_tight_budget_keeps_high_priority_and_drops_low_even_if_low_is_earlier()
 
     assert [i.task.title for i in plan.entries] == ["Meds"]
     assert [s.task.title for s in plan.skipped] == ["Grooming"]
+
+
+# --- Next available slot ----------------------------------------------------------
+
+
+def _scheduler_with_fixed_tasks(*fixed):
+    """Owner with one pet whose pending tasks are (start_time, minutes) pairs."""
+    owner, mochi, _ = _owner_with_two_pets()
+    for i, (start, minutes) in enumerate(fixed):
+        mochi.add_task(Task(f"T{i}", minutes, start_time=start))
+    return Scheduler(owner)
+
+
+def test_next_slot_is_day_start_when_nothing_is_booked():
+    assert _scheduler_with_fixed_tasks().find_next_slot(30) == time(8, 0)
+
+
+def test_next_slot_skips_past_a_blocking_task():
+    scheduler = _scheduler_with_fixed_tasks(("08:00", 30))
+
+    assert scheduler.find_next_slot(30) == time(8, 30)
+
+
+def test_next_slot_uses_an_early_gap_when_it_is_big_enough():
+    scheduler = _scheduler_with_fixed_tasks(("09:00", 60))
+
+    assert scheduler.find_next_slot(60) == time(8, 0)  # 08:00-09:00 is free
+    assert scheduler.find_next_slot(61) == time(10, 0)  # too big, goes after the task
+
+
+def test_next_slot_handles_overlapping_and_unsorted_tasks():
+    scheduler = _scheduler_with_fixed_tasks(("09:00", 60), ("08:00", 90), ("09:30", 15))
+
+    # 08:00-09:30 and 09:00-10:00 overlap, so the first free minute is 10:00.
+    assert scheduler.find_next_slot(15) == time(10, 0)
+
+
+def test_next_slot_exact_fit_before_next_task():
+    scheduler = _scheduler_with_fixed_tasks(("08:30", 30))
+
+    assert scheduler.find_next_slot(30) == time(8, 0)
+
+
+def test_next_slot_returns_none_when_the_day_is_full():
+    scheduler = _scheduler_with_fixed_tasks(("08:00", 840))  # 08:00-22:00
+
+    assert scheduler.find_next_slot(1) is None
+
+
+def test_next_slot_returns_none_when_it_would_run_past_day_end():
+    scheduler = _scheduler_with_fixed_tasks(("08:00", 780))  # busy until 21:00
+
+    assert scheduler.find_next_slot(60) == time(21, 0)
+    assert scheduler.find_next_slot(61) is None
+
+
+def test_next_slot_ignores_completed_untimed_and_other_day_tasks():
+    owner, mochi, _ = _owner_with_two_pets()
+    done = Task("Done", 60, start_time="08:00")
+    done.mark_complete()
+    mochi.add_task(done)
+    mochi.add_task(Task("Untimed", 60))
+    mochi.add_task(Task("Tomorrow", 60, start_time="08:00",
+                        due_date=date.today() + timedelta(days=1)))
+
+    assert Scheduler(owner).find_next_slot(30) == time(8, 0)
+
+
+def test_next_slot_for_a_specific_day_and_custom_window():
+    owner, mochi, _ = _owner_with_two_pets()
+    tomorrow = date.today() + timedelta(days=1)
+    mochi.add_task(Task("Vet", 60, start_time="12:00", due_date=tomorrow))
+
+    slot = Scheduler(owner).find_next_slot(30, day_start=time(12, 0), on=tomorrow)
+
+    assert slot == time(13, 0)
+
+
+def test_next_slot_rejects_bad_arguments():
+    scheduler = _scheduler_with_fixed_tasks()
+    with pytest.raises(ValueError):
+        scheduler.find_next_slot(0)
+    with pytest.raises(ValueError):
+        scheduler.find_next_slot(10, day_start=time(10, 0), day_end=time(9, 0))

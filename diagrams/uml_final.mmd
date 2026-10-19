@@ -25,6 +25,8 @@ classDiagram
         +mark_complete() None
         +next_occurrence() Task
         +priority_value() int
+        +to_dict() dict
+        +from_dict(data) Task$
         +__str__() str
     }
 
@@ -40,6 +42,8 @@ classDiagram
         +remove_task(task_id) None
         +complete_task(task_id) Task
         +get_tasks() list~Task~
+        +to_dict() dict
+        +from_dict(data) Pet$
         -_find_task(task_id) Task
     }
 
@@ -52,6 +56,10 @@ classDiagram
         +add_pet(pet) None
         +remove_pet(name) None
         +get_all_tasks() list~tuple~
+        +to_dict() dict
+        +from_dict(data) Owner$
+        +save_to_json(path) None
+        +load_from_json(path) Owner$
     }
 
     class ScheduledItem {
@@ -87,9 +95,10 @@ classDiagram
         +time start_time
         +generate_plan() DailyPlan
         +sort_by_time(tasks) list~tuple~
+        +sort_by_priority(tasks) list~tuple~
+        +find_next_slot(duration_minutes, day_start, day_end, on) time
         +filter_tasks(pet_name, completed, tasks) list~tuple~
         +detect_conflicts() list~str~
-        -_sort_tasks(tasks) list~tuple~
         -_fit_to_time(tasks) tuple
         -_assign_times(tasks) list~ScheduledItem~
         -_explain(task, reason) str

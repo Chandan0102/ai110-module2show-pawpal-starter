@@ -87,9 +87,29 @@ def priority_demo() -> None:
     print(plan.explain())
 
 
+def slot_demo() -> None:
+    """Show find_next_slot() looking for free gaps around fixed-time tasks."""
+    owner = Owner(name="Jordan", available_minutes=240)
+    mochi = Pet(name="Mochi", species="dog")
+    owner.add_pet(mochi)
+    mochi.add_task(Task("Morning walk", 30, Priority.HIGH, category="walk", start_time="08:00"))
+    mochi.add_task(Task("Vet visit", 60, Priority.HIGH, category="general", start_time="09:00"))
+    mochi.add_task(Task("Grooming", 45, Priority.LOW, category="grooming", start_time="11:00"))
+
+    scheduler = Scheduler(owner)
+
+    print("\n\n=== Next available slot demo (day runs 08:00-22:00) ===")
+    print(tasks_table(scheduler.sort_by_time()))
+    for minutes in (30, 45, 90, 600, 720):
+        slot = scheduler.find_next_slot(minutes)
+        answer = f"{slot:%H:%M}" if slot else "no room today"
+        print(f"🕒 Next free {minutes:>3}-minute slot: {answer}")
+
+
 if __name__ == "__main__":
     # Emoji need UTF-8; the default Windows console encoding can't print them.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     main()
     priority_demo()
+    slot_demo()

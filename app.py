@@ -202,6 +202,16 @@ else:
                 except ValueError as err:
                     st.error(str(err))
 
+    with st.expander("Find a free time slot"):
+        st.caption("Looks for the earliest gap between 08:00 and 22:00 around today's fixed-time tasks.")
+        need = st.number_input("Minutes needed", min_value=1, max_value=600, value=30, key="slot_minutes")
+        if st.button("Find slot"):
+            slot = Scheduler(owner).find_next_slot(int(need))
+            if slot is None:
+                st.warning(f"No free {int(need)}-minute gap left today.")
+            else:
+                st.success(f"🕒 Next free {int(need)}-minute slot starts at {slot:%H:%M}.")
+
 st.divider()
 
 # --- Schedule ---------------------------------------------------------------

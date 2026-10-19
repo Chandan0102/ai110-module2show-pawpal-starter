@@ -23,7 +23,8 @@ A busy pet owner needs help staying consistent with pet care. They want an assis
 - **Input validation.** Bad durations, frequencies, priorities and times are rejected with a clear message.
 - **Saved between runs.** Pets and tasks are stored in `data.json` and reloaded when the app starts (see [Data persistence](#-data-persistence)).
 - **Easy to read output.** Colour-coded priority badges, emoji for task types, status indicators and formatted CLI tables (see [Display and formatting](#-display-and-formatting)).
-- **Tested.** 55 automated tests cover scheduling, sorting, filtering, recurrence, conflicts, validation, saving/loading and formatting.
+- **Next available slot.** Ask for the earliest free gap of a given length around tasks that have fixed times (`Scheduler.find_next_slot()`), including the Streamlit "Find a free time slot" panel.
+- **Tested.** 65 automated tests cover scheduling, sorting, filtering, recurrence, conflicts, validation, saving/loading and formatting.
 
 ## Implementation summary
 
@@ -169,12 +170,13 @@ platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0
 rootdir: C:\Users\sinha\Desktop\AI110\ai110-module2show-pawpal-starter
 configfile: pytest.ini
 testpaths: tests
-collected 55 items
+collected 65 items
 
 tests\test_format.py ........                                           [ 14%]
-tests\test_pawpal.py ...............................................         [100%]
+tests\test_pawpal.py ................................................... [ 90%]
+......                                                                   [100%]
 
-============================= 55 passed in 0.46s ==============================
+============================= 65 passed in 0.30s ==============================
 ```
 
 ## 📐 Smarter Scheduling
@@ -185,6 +187,7 @@ tests\test_pawpal.py ...............................................         [10
 | Filtering | `Scheduler.filter_tasks()` | Filter by `pet_name`, by `completed` status, or both. |
 | Conflict handling | `Scheduler.detect_conflicts()` | Warns when pending tasks share the same date and `start_time`, for the same pet or different pets. |
 | Recurring tasks | `Task.next_occurrence()`, `Pet.complete_task()` | Completing a daily or weekly task adds a copy due today + 1 or + 7 days. |
+| Next available slot | `Scheduler.find_next_slot()` | Finds the earliest start time with a free gap of the requested length, around pending fixed-time tasks. |
 
 **Sorting.** `sort_by_time()` uses `sorted()` with a lambda key on `start_time`. `Task` normalises times to zero-padded `HH:MM` (so `"8:00"` becomes `"08:00"`), which makes plain string comparison match clock order. Tasks without a time sort last using a `"99:99"` sentinel.
 
@@ -193,6 +196,26 @@ tests\test_pawpal.py ...............................................         [10
 **Conflict detection.** `detect_conflicts()` groups pending tasks by `(due_date, start_time)` in one pass and returns a list of warning strings. It never raises. It only catches exact start-time matches, not overlapping durations (see the tradeoff in `reflection.md`).
 
 **Recurring tasks.** Call `pet.complete_task(task_id)` instead of `task.mark_complete()` when you want recurrence. It marks the task done and, for `daily` or `weekly` tasks, adds a new `Task` with a fresh id and a due date computed with `timedelta`. One-off (`once`) tasks return `None`, and completing an already-completed task does nothing. The daily plan only includes tasks that are due today or earlier, so the new copy waits until its day.
+
+**Next available slot.** `find_next_slot(duration_minutes, day_start=08:00, day_end=22:00, on=today)` answers "when could I fit a 45-minute vet visit?". Pending tasks that have a fixed `HH:MM` time block their time range (start to start + duration). Tasks without a fixed time are flexible and block nothing. The method sorts those blocked ranges by start time and sweeps through the day once with a cursor: if the gap before the next range is big enough it returns the cursor, otherwise it moves the cursor past that range. It returns `None` if nothing fits before `day_end`. It works in whole minutes, so overlapping and unsorted tasks are handled and nothing wraps past midnight. Unlike `detect_conflicts()`, which only matches identical start times, this method does take durations into account. Output from `python main.py` (the third demo), with fixed tasks at 08:00 for 30 min, 09:00 for 60 min and 11:00 for 45 min:
+
+```
+=== Next available slot demo (day runs 08:00-22:00) ===
+╭────────┬───────┬─────────────────┬────────────┬───────┬───────────┬────────────┬────────────╮
+│ Time   │ Pet   │ Task            │ Priority   │   Min │ Repeats   │ Due        │ Status     │
+├────────┼───────┼─────────────────┼────────────┼───────┼───────────┼────────────┼────────────┤
+│ 08:00  │ Mochi │ 🐕 Morning walk │ 🔴 High    │    30 │ daily     │ 2026-10-18 │ ⏳ Pending │
+│ 09:00  │ Mochi │ 🐾 Vet visit    │ 🔴 High    │    60 │ daily     │ 2026-10-18 │ ⏳ Pending │
+│ 11:00  │ Mochi │ 🛁 Grooming     │ 🟢 Low     │    45 │ daily     │ 2026-10-18 │ ⏳ Pending │
+╰────────┴───────┴─────────────────┴────────────┴───────┴───────────┴────────────┴────────────╯
+🕒 Next free  30-minute slot: 08:30
+🕒 Next free  45-minute slot: 10:00
+🕒 Next free  90-minute slot: 11:45
+🕒 Next free 600-minute slot: 11:45
+🕒 Next free 720-minute slot: no room today
+```
+
+In the Streamlit app, open **Find a free time slot** in the Tasks section, enter the minutes needed and press **Find slot**.
 
 **Known limitation.** The daily plan packs tasks back to back from the start time and does not yet place tasks at their fixed `start_time`. Fixed times are used for sorting and conflict warnings only.
 
