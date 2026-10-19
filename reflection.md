@@ -4,13 +4,21 @@
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+My initial UML design is built around the three core actions a user performs: entering owner and pet info, adding and editing care tasks, and generating a daily plan. I wanted each action to map to one clear class, and I kept scheduling logic out of the data classes so it could be tested on its own.
+
+I included five classes:
+
+- **Owner**: holds the owner's name, the time available per day, and their preferences. It owns a list of pets and is the single entry point for reaching all of their tasks.
+- **Pet**: holds the pet's name and species, and the list of care tasks for that pet. It is responsible for adding, editing and removing its own tasks.
+- **Task**: represents one care activity (walk, feeding, meds, enrichment, grooming). It stores a title, duration in minutes, and priority (low, medium or high). It is a plain data object with no scheduling logic.
+- **Scheduler**: takes an Owner and builds the daily plan. It collects tasks across pets, orders them by priority, fits them into the owner's available time, and records the reason each task was included or left out. This is where all the planning logic lives.
+- **DailyPlan**: the result the Scheduler returns. It holds the ordered, time-slotted entries, the tasks that were skipped, and the explanation text. 
+
+The main relationships are: an Owner has many Pets, a Pet has many Tasks, the Scheduler uses an Owner to produce a DailyPlan, and a DailyPlan refers to the Tasks it scheduled.
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+*To be completed after implementation.* No backend code exists yet, so the design has not changed. After building the classes, I will reveiw this agian.
 
 ---
 
