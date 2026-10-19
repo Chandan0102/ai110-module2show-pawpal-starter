@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from typing import Optional
@@ -34,6 +34,8 @@ class Task:
     category: str = "general"  # walk, feeding, meds, enrichment, grooming
     preferred_time: Optional[str] = None  # "morning", "afternoon" or "evening"
     frequency: str = "daily"  # "once", "daily" or "weekly"
+    start_time: Optional[str] = None  # fixed time of day as "HH:MM"
+    due_date: date = field(default_factory=date.today)
     completed: bool = False
     task_id: str = field(default_factory=lambda: uuid4().hex)
 
@@ -43,10 +45,29 @@ class Task:
             raise ValueError("duration_minutes must be positive")
         if self.frequency not in FREQUENCIES:
             raise ValueError(f"frequency must be one of {FREQUENCIES}")
+        if self.start_time is not None:
+            # Normalise to zero-padded "HH:MM" so plain string sorting is correct.
+            try:
+                parsed = datetime.strptime(self.start_time, "%H:%M")
+            except ValueError:
+                raise ValueError("start_time must look like 'HH:MM'") from None
+            self.start_time = parsed.strftime("%H:%M")
 
     def mark_complete(self) -> None:
         """Mark this task as done."""
         self.completed = True
+
+    def next_occurrence(self) -> Optional[Task]:
+        """Return a fresh copy due on the next occurrence, or None if one-off."""
+        days = {"daily": 1, "weekly": 7}.get(self.frequency)
+        if days is None:
+            return None
+        return replace(
+            self,
+            completed=False,
+            due_date=date.today() + timedelta(days=days),
+            task_id=uuid4().hex,
+        )
 
     def priority_value(self) -> int:
         """Return a numeric priority (1-3) for sorting."""
@@ -86,6 +107,15 @@ class Pet:
     def remove_task(self, task_id: str) -> None:
         """Remove the task with the given id."""
         self.tasks.remove(self._find_task(task_id))
+
+    def complete_task(self, task_id: str) -> Optional[Task]:
+        """Mark a task done; if it recurs, add and return its next occurrence."""
+        task = self._find_task(task_id)
+        task.mark_complete()
+        next_task = task.next_occurrence()
+        if next_task is not None:
+            self.add_task(next_task)
+        return next_task
 
     def get_tasks(self) -> list[Task]:
         """Return a copy of this pet's tasks."""
@@ -193,7 +223,12 @@ class Scheduler:
     def generate_plan(self) -> DailyPlan:
         """Build the daily plan from all of the owner's pets' tasks."""
         # Read through the Owner so every pet is covered, not just one.
-        pending = [(p, t) for p, t in self.owner.get_all_tasks() if not t.completed]
+        today = date.today()
+        pending = [
+            (p, t)
+            for p, t in self.owner.get_all_tasks()
+            if not t.completed and t.due_date <= today
+        ]
         ordered = self._sort_tasks(pending)
         fitted, skipped = self._fit_to_time(ordered)
 
@@ -203,6 +238,43 @@ class Scheduler:
         for entry in skipped:
             plan.skipped.append(entry)
         return plan
+
+    def sort_by_time(
+        self, tasks: Optional[list[tuple[Pet, Task]]] = None
+    ) -> list[tuple[Pet, Task]]:
+        """Sort (pet, task) pairs by their "HH:MM" start_time; untimed tasks go last."""
+        pairs = self.owner.get_all_tasks() if tasks is None else tasks
+        return sorted(pairs, key=lambda pair: pair[1].start_time or "99:99")
+
+    def filter_tasks(
+        self,
+        pet_name: Optional[str] = None,
+        completed: Optional[bool] = None,
+        tasks: Optional[list[tuple[Pet, Task]]] = None,
+    ) -> list[tuple[Pet, Task]]:
+        """Return (pet, task) pairs matching the given pet name and/or completion status."""
+        pairs = self.owner.get_all_tasks() if tasks is None else tasks
+        return [
+            (pet, task)
+            for pet, task in pairs
+            if (pet_name is None or pet.name == pet_name)
+            and (completed is None or task.completed == completed)
+        ]
+
+    def detect_conflicts(self) -> list[str]:
+        """Return warnings for pending tasks sharing the same date and start_time."""
+        slots: dict[tuple[date, str], list[tuple[Pet, Task]]] = {}
+        for pet, task in self.owner.get_all_tasks():
+            if task.start_time is not None and not task.completed:
+                slots.setdefault((task.due_date, task.start_time), []).append((pet, task))
+
+        warnings = []
+        for (day, at), group in slots.items():
+            if len(group) > 1:
+                scope = "same pet" if len({p.name for p, _ in group}) == 1 else "different pets"
+                names = ", ".join(f"{p.name}: {t.title}" for p, t in group)
+                warnings.append(f"Conflict on {day:%Y-%m-%d} at {at} ({scope}): {names}")
+        return warnings
 
     def _sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """Order by priority (high first), then time of day, then shorter first."""

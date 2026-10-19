@@ -34,7 +34,7 @@ The backend lives in `pawpal_system.py` and is built from a few small classes:
 
 How they fit together: `Owner` → `Pet` → `Task` hold the data, `Scheduler` reads from the `Owner` and produces a `DailyPlan`, and the UI only has to display that plan.
 
-Try it in the terminal with `python main.py`, and run the tests with `pytest`. The Streamlit UI in `app.py` is not connected to this logic yet.
+Try it in the terminal with `python main.py`, and run the tests with `pytest`. The Streamlit UI in `app.py` uses this logic: run it with `streamlit run app.py`.
 
 ## Getting started
 
@@ -95,14 +95,22 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
-
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting | `Scheduler.sort_by_time()`, `Scheduler._sort_tasks()` | `sort_by_time` orders tasks by their `"HH:MM"` `start_time`; tasks with no time go last. `_sort_tasks` orders the daily plan by priority, then time of day, then duration. |
+| Filtering | `Scheduler.filter_tasks()` | Filter by `pet_name`, by `completed` status, or both. |
+| Conflict handling | `Scheduler.detect_conflicts()` | Warns when pending tasks share the same date and `start_time`, for the same pet or different pets. |
+| Recurring tasks | `Task.next_occurrence()`, `Pet.complete_task()` | Completing a daily or weekly task adds a copy due today + 1 or + 7 days. |
+
+**Sorting.** `sort_by_time()` uses `sorted()` with a lambda key on `start_time`. `Task` normalises times to zero-padded `HH:MM` (so `"8:00"` becomes `"08:00"`), which makes plain string comparison match clock order. Tasks without a time sort last using a `"99:99"` sentinel.
+
+**Filtering.** `filter_tasks(pet_name=..., completed=...)` works on the `(pet, task)` pairs from `Owner.get_all_tasks()`. Leave an argument as `None` to ignore that filter.
+
+**Conflict detection.** `detect_conflicts()` groups pending tasks by `(due_date, start_time)` in one pass and returns a list of warning strings. It never raises. It only catches exact start-time matches, not overlapping durations (see the tradeoff in `reflection.md`).
+
+**Recurring tasks.** Call `pet.complete_task(task_id)` instead of `task.mark_complete()` when you want recurrence. It marks the task done and, for `daily` or `weekly` tasks, adds a new `Task` with a fresh id and a due date computed with `timedelta`. One-off (`once`) tasks return `None`. The daily plan only includes tasks that are due today or earlier, so the new copy waits until its day.
+
+**Known limitation.** The daily plan packs tasks back to back from the start time and does not yet place tasks at their fixed `start_time`. Fixed times are used for sorting and conflict warnings only.
 
 ## 📸 Demo Walkthrough
 

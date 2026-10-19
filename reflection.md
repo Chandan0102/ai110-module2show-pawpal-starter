@@ -42,8 +42,11 @@ The review also raised points I chose not to act on yet, and will revisit during
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+**Conflict detection only checks for exact start-time matches, not overlapping durations.** `Scheduler.detect_conflicts()` groups pending tasks by `(due_date, start_time)`. Two tasks at 18:00 raise a warning, but a 30-minute walk at 18:00 and a medication at 18:15 do not, even though they overlap.
+
+This is reasonable for a first version. The check is a single pass with a dictionary, it is easy to read and test, and it never crashes the app because it returns warning strings. It also fits how pet owners think about care tasks, which are usually "18:00 walk" and "18:00 meds" rather than precise time ranges. Catching overlaps would mean comparing every pair of tasks and handling tasks that run past midnight, and I judged that too much complexity for the benefit. The cost is missed warnings for near-misses, so with more time I would compare `start_time` plus `duration_minutes` ranges.
+
+A related simplification is that the daily plan still packs tasks back to back from the start time and does not place tasks at their fixed `start_time`. Fixed times currently drive sorting and conflict warnings only.
 
 ---
 
